@@ -3,66 +3,119 @@ import easyocr
 import re
 from datetime import datetime
 import requests
-import json   # 🔥 MUST
+from twilio.rest import Client
 
+# 🔥 SUPABASE
 SUPABASE_URL = "https://yqlerrucbdjkqiyfrjbj.supabase.co/rest/v1/bus_log"
 API_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlxbGVycnVjYmRqa3FpeWZyamJqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ3MTc5NTcsImV4cCI6MjA5MDI5Mzk1N30.8edwaC2-PEKYlTgzAZcl1MJgdR73Lq7aOBDSmIJGMDo"
 
 headers = {
     "apikey": API_KEY,
     "Authorization": "Bearer " + API_KEY,
-    "Content-Type": "application/json",
-    "Accept": "application/json",
-    "Prefer": "return=representation"
+    "Content-Type": "application/json"
 }
 
+# 🔥 TWILIO
+client = Client("ACd0f7a96b962ecbc134a4f9c81d76f1fd", "ac7cffaca8542a425e63375d896e7172")
+
+TWILIO_NUMBER = "+17405677550"
+COORDINATOR_NUMBER = "+918667468455"
+
+# 🔥 NGROK URL
+BASE_URL = "https://unsmouldering-else-captivatedly.ngrok-free.dev/reason?bus=TN45AB1234"
+
+# 🔥 OCR
 reader = easyocr.Reader(['en'])
 cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
 
 pattern = r"[A-Z]{2}\d{2}[A-Z]{1,2}\d{4}"
 
-print("Camera running...")
+# 🔥 CONTROL
+last_seen = {}
+COOLDOWN = 5
+EXIT_WINDOW = 30
+
+print("Camera running... Press ESC to exit")
 
 while True:
     ret, frame = cap.read()
-
     if not ret:
         break
 
     results = reader.readtext(frame)
 
-    for (bbox, text, prob) in results:
+    for (_, text, prob) in results:
         text = text.replace(" ", "").upper()
 
         if re.match(pattern, text):
 
             now = datetime.now()
-            expected_time = now.replace(hour=8, minute=50, second=0, microsecond=0)
 
-            status = "ON TIME" if now <= expected_time else "LATE"
-            violation = "YES" if status == "LATE" else "NO"
-            reason = "Bus arrived late" if status == "LATE" else "On time"
+            # 🔥 COOLDOWN
+            if text in last_seen:
+                diff = (now - last_seen[text]).total_seconds()
 
+                if diff < COOLDOWN:
+                    continue
+
+                # 🔴 EXIT
+                if diff < EXIT_WINDOW:
+                    url = SUPABASE_URL + f"?bus_number=eq.{text}&exit_time=is.null&order=arrival_time.desc&limit=1"
+                    res = requests.get(url, headers=headers)
+
+                    if res.status_code == 200 and len(res.json()) > 0:
+                        row_id = res.json()[0]["id"]
+
+                        update_url = SUPABASE_URL + f"?id=eq.{row_id}"
+                        data = {
+                            "exit_time": now.isoformat()
+                        }
+
+                        r = requests.patch(update_url, headers=headers, json=data)
+                        print(f"🚪 EXIT UPDATED: {text}", r.status_code)
+
+                    last_seen[text] = now
+                    continue
+
+            # 🟢 ENTRY
             data = {
-    "bus_number": text,
-    "arrival_time": now.isoformat(),
-    "status": status,
-    "reason": reason,
-    "confidence": float(prob),
-    "violation": violation,
-    "exit_time": None
-}
+                "bus_number": text,
+                "arrival_time": now.isoformat(),
+                "status": "LATE",
+                "confidence": float(prob),
+                "violation": "YES",
+                "exit_time": None
+            }
+
+            r = requests.post(SUPABASE_URL, headers=headers, json=data)
+            print(f"🟢 ENTRY SAVED: {text}", r.status_code)
+
+            # 🔥 SEND SMS WITH LINK
+            link = f"{BASE_URL}/reason?bus={text}"
+
             try:
-                res = requests.post(SUPABASE_URL, headers=headers, data=json.dumps(data))
-                print("Status:", res.status_code)
-                print("Response:", res.text)
+                msg = client.messages.create(
+                    body=f"""🚨 BUS ALERT
+
+Bus: {text}
+Status: LATE
+
+Submit reason:
+{link}
+""",
+                    from_=TWILIO_NUMBER,
+                    to=COORDINATOR_NUMBER
+                )
+                print("📩 SMS SENT:", msg.sid)
+
             except Exception as e:
-                print("Error:", e)
+                print("SMS Error:", e)
+
+            last_seen[text] = now
 
     cv2.imshow("Bus OCR", frame)
 
     if cv2.waitKey(1) == 27:
-        print("Camera stopped")
         break
 
 cap.release()

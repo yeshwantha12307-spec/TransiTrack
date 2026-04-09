@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Bus Dashboard</title>
+
+    <style>
+        body {
+            background: #0f172a;
+            color: white;
+            font-family: Arial;
+            text-align: center;
+        }
+
+        h2 {
+            margin-top: 20px;
+        }
+
+        table {
+            border-collapse: collapse;
+            width: 90%;
+            margin: auto;
+            background: #1e293b;
+            border-radius: 10px;
+            overflow: hidden;
+        }
+
+        th, td {
+            padding: 10px;
+        }
+
+        th {
+            background: #334155;
+        }
+
+        tr:nth-child(even) {
+            background: #0f172a;
+        }
+
+        .late {
+            color: red;
+            font-weight: bold;
+        }
+
+        .ontime {
+            color: #22c55e;
+            font-weight: bold;
+        }
+    </style>
+</head>
+
+<body>
+
+<h2>🚌 Smart Bus Monitoring Dashboard</h2>
+
+<table>
+<tr>
+<th>Bus</th>
+<th>Time</th>
+<th>Status</th>
+<th>Confidence</th>
+<th>Violation</th>
+</tr>
+
+<tbody id="table-body">
+{% for bus in buses %}
+<tr>
+<td>{{ bus.bus_number }}</td>
+<td>{{ bus.arrival_time }}</td>
+
+<td class="{% if bus.status == 'LATE' %}late{% else %}ontime{% endif %}">
+{{ bus.status }}
+</td>
+
+<td>{{ bus.confidence }}</td>
+<td>{{ bus.violation }}</td>
+</tr>
+{% endfor %}
+</tbody>
+
+</table>
+
+<script>
+setInterval(() => location.reload(), 5000);
+</script>
+
+</body>
+</html>
